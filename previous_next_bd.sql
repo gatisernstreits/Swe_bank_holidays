@@ -17,5 +17,3 @@ SELECT
         FROM latest_calendar;
 
 --maybe try with CASE and when -> then
-
---adding some comment to commit
