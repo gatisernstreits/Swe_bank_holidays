@@ -55,6 +55,7 @@ FROM (
 
 DROP TABLE IF EXISTS joined_calendar;
 
+
 CREATE TABLE joined_calendar AS
 SELECT * FROM calendar
 LEFT JOIN swe_bank_holidays
