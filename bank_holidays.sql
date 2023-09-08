@@ -6,7 +6,7 @@ CREATE TABLE swe_bank_holidays(
 );
 
 INSERT or IGNORE INTO swe_bank_holidays(holiday_date, swe_hol_flag)
-VALUES  ('2022-01-01', 'Y'),
+VALUES ('2022-01-01', 'Y'),
         ('2022-01-06', 'Y'),
         ('2022-04-15', 'Y'),
         ('2022-04-17', 'Y'),
