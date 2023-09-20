@@ -37,3 +37,458 @@ CREATE TABLE SWE_BANK_HOL
 ")
 END
 return 0
+
+CREATE PROCEDURE SP_SMAIN_DAILY_FXD_AS1
+@MxHistoricalData numeric(10,0)  ,@CLOSING_ENT  VARCHAR(10) ,@INSTR_IN  VARCHAR(10),@INSTR_NOT_IN  VARCHAR(10),
+@ReportingDate date, @MxHistoricalData2 numeric(10,0) --MFX-11317
+
+
+--SMAIN AND ARXIP TABLE 
+--DEAD AND LIVE TRADES
+AS
+
+BEGIN
+
+
+INSERT INTO SMAIN_DAILY_AS_REP
+
+select 
+  T1.RCRD_TP_NUM
+, T1.EDW_AR_TP
+, T1.AR_ID
+, T1.AR_ID_ADDL_PART
+, T1.LEG_ID
+, T1.BOOKG_RESP_ORG_ID
+, T1.BOOKG_RESP_UNIT_ID
+, T1.SITE_ID
+, T1.BUS_RESP_ORG_ID
+, T1.BUS_RESP_UNIT_ID
+, T1.MENU_PD_ID
+, T1.BASE_PD_ID
+, T1.FAC_PD_ID
+, T1.CMPT_PD_ID
+, T1.TRD_DT
+, T1.MAT_DT
+, T1.LAST_ACTY_DT
+, T1.PRTFL_ID
+, T1.BAL_SHET_CAT_TP
+, T1.HDG_ID
+, T1.HDG_TP
+, T1.PD_AR_PKG_ID 
+, T1.SRCE_ALT_AR_ID
+, T1.SRCE_AR_ST_TP
+, T1.SRCE_PROD_TP
+, T1.DEL_LDGR_UDLY_SYS_ID
+, T1.NET_AR_ID
+, T1.INTL_CNTPR_ORG_ID
+, T1.INTL_CNTPR_UNIT_ID
+, T1.PD_AR_PKG_ID_TP
+, T1.BUS_PERF_USER_ID
+, T1.AR_X_IP_TP
+, T1.IP_ID
+, T1.BAL_AMT_ORIG
+
+,@CLOSING_ENT
+,@MxHistoricalData
+,@INSTR_IN
+,@INSTR_NOT_IN
+,'SP_SMAIN_DAILY_FXD_AS1'
+
+
+
+from (
+
+select
+distinct 
+  1 as RCRD_TP_NUM
+
+, case when udf.M_SEB_ACC_RE='Y' then (case rtrim(udf.M_SEB_ACC_TY)
+                                           when 'OUTRIGHT' then 'FXFWD'
+                                           when 'FX SWAP' then 'FXSWP'
+                                           when 'SPOT' then 'FXSPT'
+                                           else ' ' end)
+        else (
+         case 
+             when tp.M_CNT_TYPO in ('Spot','Outright') and rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and (rtrim(M_CNTLEVTL2)='Early Take Up (Offsetting)' or  rtrim(tp.M_CNT_EVTL)='Early Take Up (Offsetting)') then 'FXSWP'
+             when tp.M_CNT_TYPO='Spot' then 'FXSPT' 
+             when tp.M_CNT_TYPO='SCF' then 'FXSPT'
+             when tp.M_CNT_TYPO='Outright' and rtrim(udf.M_SEB_ACC_TY)='OUTRIGHT' and (rtrim(M_CNTLEVTL2)!='Early Take Up (Offsetting)' or rtrim(tp.M_CNT_EVTL)!='Early Take Up (Offsetting)') then 'FXFWD'
+             when tp.M_CNT_TYPO='Outright' then 'FXFWD'
+             when tp.M_CNT_TYPO='NDF' then 'FXFWD'
+             when tp.M_CNT_TYPO='FX Swap' then 'FXSWP' 
+             when tp.M_CNT_TYPO='Depo' then (case when tp.M_TP_RTPR0='R' then 'TMLOA' else 'TMDEP' end)
+             else ' ' 
+            end)
+  end as EDW_AR_TP
+
+, case when tp.M_CNT_TYPO='SCF PL' then 'DSCF' + STR_REPLACE(tp.M_TP_NOMCUR, 'CNH', 'CNY') + tp.M_TP_PFOLIO  
+       else convert(varchar(10), tp.M_CNT_ORG) 
+  end as AR_ID
+
+, case 
+      when tp.M_TP_INT='Y' then tp.M_TP_PFOLIO 
+      else ' ' 
+  end as AR_ID_ADDL_PART
+
+, case 
+      when udf.M_SEB_ACC_RE='Y' then (case when rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and  rtrim(tp.M_TP_FXSWLEG)='farLeg'  then 2 
+      when tp.M_CNT_TYPO='FX Swap' and rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and rtrim(tp.M_TP_FXSWLEG)='nearLeg' then 1 else 0 end)
+      when tp.M_CNT_TYPO='FX Swap' and rtrim(udf.M_SEB_ACC_TY) = 'FX SWAP' and (rtrim(tp.M_CNTLEVTL2) ='Early Take Up (Offsetting)' or rtrim(tp.M_CNT_EVTL)='Early Take Up (Offsetting)') and rtrim(tp.M_TP_FXSWLEG)!='nearLeg' then 2
+      when tp.M_CNT_TYPO='Spot' and rtrim(udf.M_SEB_ACC_TY) = 'FX SWAP' and (rtrim(tp.M_CNTLEVTL2) ='Early Take Up (Offsetting)' or  rtrim(tp.M_CNT_EVTL)='Early Take Up (Offsetting)') and rtrim(tp.M_TP_FXSWLEG) is null then 2        
+      when tp.M_CNT_TYPO in ('Spot','Outright') and rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and (rtrim(tp.M_CNTLEVTL2)='Early Take Up (Offsetting)' or  rtrim(tp.M_CNT_EVTL)='Early Take Up (Offsetting)') then 2
+      when tp.M_CNT_TYPO='FX Swap' and rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and (rtrim(tp.M_CNTLEVTL2)='Early Take Up (Offsetting)' or  rtrim(tp.M_CNT_EVTL)='Early Take Up (Offsetting)') and rtrim(tp.M_TP_FXSWLEG)='nearLeg' then 1
+      when tp.M_CNT_TYPO='Outright' and rtrim(udf.M_SEB_ACC_TY)='OUTRIGHT' and rtrim(tp.M_CNTLEVTL2)='Early Take Up (Offsetting)' then 0  
+      else (case when rtrim(tp.M_CNT_TYPO)='FX Swap' then (case when rtrim(tp.M_TP_FXSWLEG)='nearLeg' then 1 else 2 end) 
+                 else 0 end) 
+  end as LEG_ID
+
+, '0080' as BOOKG_RESP_ORG_ID
+, ptf.M_PRFIT_CENT as BOOKG_RESP_UNIT_ID
+, '00' as SITE_ID
+, ' ' as BUS_RESP_ORG_ID
+, ptf.M_PRFIT_CENT as BUS_RESP_UNIT_ID
+, '0000' as MENU_PD_ID
+
+, case 
+      when udf.M_XMEC_DEAL=1 then '0954' --MFX-11496
+      when udf.M_SEB_ACC_RE='Y' then (case rtrim(udf.M_SEB_ACC_TY)
+                                          when 'OUTRIGHT' then '0130'
+                                          when 'FX SWAP' then '0127'
+                                          when 'SPOT' then '0128'
+                                          else ' ' 
+                                      end)
+      else (
+        case 
+            when tp.M_CNT_TYPO in ('Spot','Outright') and rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and (rtrim(isnull(M_CNTLEVTL2, ' '))='Early Take Up (Offsetting)' or rtrim(tp.M_CNT_EVTL)='Early Take Up (Offsetting)') then '0127'
+            when tp.M_CNT_TYPO='Spot' then '0128'
+            when tp.M_CNT_TYPO='SCF' then '0128'
+            when tp.M_CNT_TYPO in ('Spot','Outright') and rtrim(udf.M_SEB_ACC_TY)='OUTRIGHT' and (rtrim(isnull(M_CNTLEVTL2,' '))!='Early Take Up (Offsetting)' or rtrim(tp.M_CNT_EVTL)!='Early Take Up (Offsetting)') then '0130'
+            when tp.M_CNT_TYPO='Outright' then '0130'
+            when tp.M_CNT_TYPO='NDF' then '0916'
+            when tp.M_CNT_TYPO='FX Swap'  then '0127'
+            when tp.M_CNT_TYPO='Depo' then '0236'
+            else '0000' end)
+  end as BASE_PD_ID
+
+, '0000' as FAC_PD_ID
+, '0000' as CMPT_PD_ID
+
+, case 
+      when tp.M_CNT_TYPO='SCF PL' then STR_REPLACE(convert(char(10), bd.M_H_TODAY, 121), '/', '-') 
+      else STR_REPLACE(convert(char(10), tp.M_TP_DTETRN, 121), '/', '-')  
+  end as TRD_DT
+
+, case 
+      when tp.M_CNT_TYPO='SCF PL' then STR_REPLACE(convert(char(10), bd.M_H_TOD_P1D, 121), '/', '-') 
+      else STR_REPLACE(convert(char(10), tp.M_TP_DTEEXP, 121), '/', '-')
+  end as MAT_DT
+
+
+,case --MFX-11317
+   when tp2.M_TP_NOMINAL is null then '0001-01-01' --Trade did not exist in yesterdays data set
+   when tp2.M_TP_NOMINAL <> tp.M_TP_NOMINAL or tp2.M_TP_DTEEXP <> tp.M_TP_DTEEXP 
+   then STR_REPLACE(convert(char(10),@ReportingDate, 121), '/', '-')
+   else '0001-01-01' --default   
+end as LAST_ACTY_DT
+
+, tp.M_TP_PFOLIO as PRTFL_ID
+
+, case 
+      when tp.M_CNT_TYPO='Depo' or tp.M_CNT_TYPO='SCF PL' then 'LAR' 
+      else 'HFT' 
+  end as BAL_SHET_CAT_TP
+
+, ' ' as HDG_ID
+, ' ' as HDG_TP
+
+, case 
+      when rtrim(isnull(tp.M_CNTLIMPL2, ' '))='Early Take Up (Offsetting)' or rtrim(isnull(M_CNTLEVTL2, ' '))='Early Take Up (Offsetting)' or rtrim(isnull(M_CNT_EVTL, ' '))='Early Take Up (Offsetting)'
+          then (case when rtrim(isnull(udf.M_CORR_DLNB,' '))!=' ' then udf.M_CORR_DLNB else tp.M_TP_GID end)
+	  else ' ' 
+  end as PD_AR_PKG_ID
+
+, isnull(tp.M_TP_GID,' ') as SRCE_ALT_AR_ID
+
+-- MFX-10727 -- MX send 'ROLLED_OVE' in case the trade is created from 'Extension (Offsetting)'
+--, case  when tp.M_TP_ENTITY = 'SEB CN' and tp.M_CNT_EVTL='Extension (Offsetting)' then 'ROLLED_OVE'   else ' ' end  as SRCE_AR_ST_TP
+, 
+case 
+when tp.M_TP_ENTITY = 'SEB CN' and  M_CNT_EVTL ='Extension (Offsetting)' and M_CNTLIMPL2='Extension (Offsetting)' then "ROLL_OVER"
+when tp.M_TP_ENTITY = 'SEB CN' and  M_CNT_EVTL ='Extension (Offsetting)' and isnull(M_CNTLIMPL2,'')='' then "ROLL_OVER_"
+
+else ' '
+end  as SRCE_AR_ST_TP
+, ' ' as SRCE_PROD_TP
+, 'MXB' as DEL_LDGR_UDLY_SYS_ID
+, ' ' as NET_AR_ID
+, ' ' as INTL_CNTPR_ORG_ID
+, ' ' as INTL_CNTPR_UNIT_ID
+
+, case 
+      when rtrim(isnull(tp.M_CNTLIMPL2, ' '))='Early Take Up (Offsetting)' or rtrim(isnull(M_CNTLEVTL2, ' '))='Early Take Up (Offsetting)' or rtrim(isnull(M_CNT_EVTL, ' '))='Early Take Up (Offsetting)' then 'BUYOUT' 
+      else ' ' 
+  end as PD_AR_PKG_ID_TP
+
+--, ' ' as 
+
+
+/*
+---Manage BUS_PERF_USER_ID Just for ENTITY= 'SEB CN' : if AR_ID --- CONTRACT_ORIGIN then BUS_PERF_USER_ID dealer
+--                                                     Otherwise ==> Margin      
+--  For ENTITY <> 'SEB CN'  ==> then BUS_PERF_USER_ID=''
+*/
+,case 
+
+--Case For Margin 
+when tp.M_CNT_TYPO='SCF PL' AND  tp.M_TP_ENTITY='SEB CN'  
+
+THEN 
+(case
+  when udf.M_MRG_BRNCH = 'CKG' then 'SHA'
+ when udf.M_MRG_BRNCH = 'CKS' then 'STO'
+ when udf.M_MRG_BRNCH = 'CKT' then 'STO'
+ when udf.M_MRG_BRNCH = 'EFX' then 'STO'
+ when udf.M_MRG_BRNCH = 'SEBI' then 'SHA'
+ when udf.M_MRG_BRNCH = 'COPS' then 'CPH'
+ when udf.M_MRG_BRNCH = 'FAMS' then 'FRA'
+ when udf.M_MRG_BRNCH = 'HES' then 'HEL'
+ when udf.M_MRG_BRNCH = 'HKGS' then 'HKG'
+ when udf.M_MRG_BRNCH = 'LONS' then 'LON'
+ when udf.M_MRG_BRNCH = 'NYS' then 'NYC'
+ when udf.M_MRG_BRNCH = 'OSS' then 'OSL'
+ when udf.M_MRG_BRNCH = 'SGS' then 'SIN'
+ when udf.M_MRG_BRNCH = 'WAS' then 'WAR'
+ when tp.M_TP_ENTITY='SEB CN' then isnull(udf.M_MRG_BRNCH,"")
+ else isnull(udf.M_MRG_BRNCH,'')
+ end)
+
+when tp.M_TP_ENTITY='SEB CN' then tp.M_TP_TRADER  --udf.M_DEALER 
+
+else ''
+ end as BUS_PERF_USER_ID
+
+--, case when tp.M_TP_ENTITY='SEB CN' then udf.M_DEALER else "" end as BUS_PERF_USER_ID
+, case 
+      when tp.M_CNT_TYPO='Depo' then 'MAINHLDR' 
+      else 'CLNT' 
+  end as AR_X_IP_TP
+
+, case 
+      when (udf.M_CHANNEL='COMMFX' or  udf.M_XMEC_DEAL=1) 
+        and isnull(udf.M_EXT_CPTY,'') <> '' 
+          then udf.M_EXT_CPTY  --MFX-11496
+      when tp.M_CNT_TYPO='SCF PL' then '00333459500005'
+      when tp.M_TP_INT='Y' then '00333459500005'          
+      else right(replicate('0', 14) + convert(varchar, rtrim(ctp.M_KURRE_NO)), 14)  
+  end as IP_ID
+
+, 0 AS BAL_AMT_ORIG
+
+from TR_TRNPL_FXD_REP  tp
+    join BUS_DAYS_ASIA_REP bd on tp.M_REF_DATA=bd.M_REF_DATA and bd.M_LABEL=tp.M_TP_ENTITY
+    left outer join TR_UDF_FX_REP     udf on tp.M_UDF_REF2=udf.M_UDF_REF2 and tp.M_REF_DATA=udf.M_REF_DATA 
+    left outer join SEBFX_PFOLIO_DES_REP ptf on tp.M_TP_PFOLIO=ptf.M_PTF_LBL and tp.M_REF_DATA=ptf.M_REF_DATA 
+    left outer join SEBFX_PARTIES_REP ctp on tp.M_TP_CNTRPRF=ctp.M_ID and ctp.M_REF_DATA=tp.M_REF_DATA
+    left outer join --MFX-11317
+    (
+    select M_CNT_ORG, M_TP_FXSWLEG, M_TP_NOMINAL, M_TP_DTEEXP from TR_TRNPL_FXD_REP 
+    where M_REF_DATA=@MxHistoricalData2 and M_TP_STATUS2!='DEAD' and M_AMD_STS2!='NA'
+    ) tp2
+    on tp2.M_CNT_ORG=tp.M_CNT_ORG and tp2.M_TP_FXSWLEG=tp.M_TP_FXSWLEG
+
+where 
+    tp.M_REF_DATA=@MxHistoricalData 
+and (tp.M_CNT_TYPO in ('Spot','Outright','FX Swap','SCF','NDF') or (tp.M_CNT_TYPO='Depo' and rtrim(M_CNT_SRCMOD)='mx.rollover'))
+and tp.M_TP_STATUS2!='DEAD'  
+and tp.M_AMD_STS2!='NA'
+and (tp.M_TP_PFOLIO!='TBGL4' or (tp.M_TP_PFOLIO='TBGL4' and udf.M_PREL_DEAL=0))
+and tp.M_CNTLEVTAD2 is not null
+and tp.M_TP_ENTITY=@CLOSING_ENT
+and  bd.M_LABEL =@CLOSING_ENT
+and (tp.M_INSTRUMENT like @INSTR_IN  and tp.M_INSTRUMENT not like  @INSTR_NOT_IN)
+
+union  
+
+
+select
+ distinct 
+ 1 as RCRD_TP_NUM
+
+, case 
+      when udf.M_SEB_ACC_RE='Y' then (case rtrim(udf.M_SEB_ACC_TY)
+                                          when 'OUTRIGHT' then 'FXFWD'
+                                          when 'FX SWAP' then 'FXSWP'
+                                          when 'SPOT' then 'FXSPT'
+                                          else ' ' end)
+      else (
+        case 
+            when tp.M_CNT_TYPO in ('Spot','Outright') and rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and (rtrim(M_CNTLEVTL2)='Early Take Up (Offsetting)' or rtrim(tp.M_CNT_EVTL)='Early Take Up (Offsetting)') then 'FXSWP'
+            when tp.M_CNT_TYPO='Spot' then 'FXSPT' 
+            when tp.M_CNT_TYPO='SCF' then 'FXSPT'
+            when tp.M_CNT_TYPO='Outright' and rtrim(udf.M_SEB_ACC_TY)='OUTRIGHT' and (rtrim(M_CNTLEVTL2)!='Early Take Up (Offsetting)' or rtrim(tp.M_CNT_EVTL)!='Early Take Up (Offsetting)') then 'FXFWD'
+            when tp.M_CNT_TYPO='Outright' then 'FXFWD'
+            when tp.M_CNT_TYPO='NDF' then 'FXFWD'
+            when tp.M_CNT_TYPO='FX Swap' then 'FXSWP' 
+            when tp.M_CNT_TYPO='Depo' then (case when tp.M_TP_RTPR0='R' then 'TMLOA' else 'TMDEP' end)
+            else ' ' 
+        end)
+
+  end as EDW_AR_TP
+
+, convert(varchar (10),tp.M_CNT_ORG) as AR_ID
+
+, case 
+      when tp.M_TP_INT='Y' then tp.M_TP_PFOLIO 
+      else ' ' 
+  end as AR_ID_ADDL_PART
+
+, case 
+      when udf.M_SEB_ACC_RE='Y' then (case when rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and  rtrim(tp.M_TP_FXSWLEG)='farLeg'  then 2 
+      when tp.M_CNT_TYPO='FX Swap' and rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and rtrim(tp.M_TP_FXSWLEG)='nearLeg' then 1 else 0 end)
+      when tp.M_CNT_TYPO='FX Swap' and rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and (rtrim(tp.M_CNTLEVTL2)='Early Take Up (Offsetting)' or rtrim(tp.M_CNT_EVTL)='Early Take Up (Offsetting)') and rtrim(tp.M_TP_FXSWLEG)!='nearLeg' then 2
+      when tp.M_CNT_TYPO='Spot' and rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and (rtrim(tp.M_CNTLEVTL2)='Early Take Up (Offsetting)' or rtrim(tp.M_CNT_EVTL)='Early Take Up (Offsetting)') and rtrim(tp.M_TP_FXSWLEG) is null then 2    
+      when tp.M_CNT_TYPO in ('Spot','Outright') and rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and (rtrim(tp.M_CNTLEVTL2)='Early Take Up (Offsetting)' or rtrim(tp.M_CNT_EVTL)='Early Take Up (Offsetting)') then 2
+      when tp.M_CNT_TYPO='FX Swap' and rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and (rtrim(tp.M_CNTLEVTL2)='Early Take Up (Offsetting)' or  rtrim(tp.M_CNT_EVTL)='Early Take Up (Offsetting)') and rtrim(tp.M_TP_FXSWLEG)='nearLeg' then 1
+      when tp.M_CNT_TYPO='Outright' and rtrim(udf.M_SEB_ACC_TY)='OUTRIGHT' and rtrim(tp.M_CNTLEVTL2)='Early Take Up (Offsetting)' then 0 
+      else (case 
+                when rtrim(tp.M_CNT_TYPO)='FX Swap' then (case when rtrim(tp.M_TP_FXSWLEG)='nearLeg' then 1 else 2 end) 
+                else 0 end) 
+  end as LEG_ID
+
+, '0080' as BOOKG_RESP_ORG_ID
+, ptf.M_PRFIT_CENT as BOOKG_RESP_UNIT_ID
+, '00' as SITE_ID
+, ' ' as BUS_RESP_ORG_ID
+, ptf.M_PRFIT_CENT as BUS_RESP_UNIT_ID
+, '0000' as MENU_PD_ID
+
+, case 
+      when udf.M_XMEC_DEAL=1 then '0954' --MFX-11496
+      when udf.M_SEB_ACC_RE='Y' then (case rtrim(udf.M_SEB_ACC_TY)
+                                         when 'OUTRIGHT' then '0130'
+                                         when 'FX SWAP' then '0127'
+                                         when 'SPOT' then '0128'
+                                         else ' ' end)
+      else (
+        case 
+            when tp.M_CNT_TYPO in ('Spot','Outright') and rtrim(udf.M_SEB_ACC_TY)='FX SWAP' and (rtrim(isnull(M_CNTLEVTL2, ' '))='Early Take Up (Offsetting)' or rtrim(isnull(tp.M_CNT_EVTL, ''))='Early Take Up (Offsetting)') then '0127'
+            when tp.M_CNT_TYPO='Spot' then '0128'
+            when tp.M_CNT_TYPO='SCF' then '0128'
+            when tp.M_CNT_TYPO in ('Spot','Outright') and rtrim(udf.M_SEB_ACC_TY)='OUTRIGHT' and (rtrim(isnull(M_CNTLEVTL2, ' '))!='Early Take Up (Offsetting)' or rtrim(isnull(tp.M_CNT_EVTL, ''))!='Early Take Up (Offsetting)') then '0130'
+            when tp.M_CNT_TYPO='Outright' then '0130'
+            when tp.M_CNT_TYPO='NDF' then '0916'
+            when tp.M_CNT_TYPO='FX Swap' then '0127'
+            when tp.M_CNT_TYPO='Depo' then '0236'
+            else '0000' end)
+  end as BASE_PD_ID
+
+, '0000' as FAC_PD_ID
+, '0000' as CMPT_PD_ID
+, STR_REPLACE(convert(char(10), tp.M_TP_DTETRN, 121), '/', '-') as TRD_DT
+, STR_REPLACE(convert(char(10), tp.M_TP_DTEEXP, 121), '/', '-') as MAT_DT
+
+,case --MFX-11317
+   when tp2.M_TP_NOMINAL is null then '0001-01-01' --Trade did not exist in yesterdays data set
+   when tp2.M_TP_NOMINAL <> tp.M_TP_NOMINAL or tp2.M_TP_DTEEXP <> tp.M_TP_DTEEXP 
+   then STR_REPLACE(convert(char(10),@ReportingDate, 121), '/', '-')
+   else '0001-01-01' --default   
+end as LAST_ACTY_DT
+
+, tp.M_TP_PFOLIO as PRTFL_ID
+
+, case 
+      when tp.M_CNT_TYPO='Depo' then 'LAR' 
+      else 'HFT' 
+  end as BAL_SHET_CAT_TP
+
+, ' ' as HDG_ID
+, ' ' as HDG_TP
+
+, case 
+      when rtrim(isnull(tp.M_CNTLIMPL2, ' '))='Early Take Up (Offsetting)' or rtrim(isnull(M_CNTLEVTL2, ' '))='Early Take Up (Offsetting)' or rtrim(isnull(M_CNT_EVTL, ' '))='Early Take Up (Offsetting)'
+         then (case when rtrim(isnull(udf.M_CORR_DLNB,' '))!=' ' then udf.M_CORR_DLNB else tp.M_TP_GID end)
+	  else ' ' 
+  end as PD_AR_PKG_ID
+
+, isnull(tp.M_TP_GID,' ') as SRCE_ALT_AR_ID
+-- MFX-10727 -- MX send 'ROLLED_OVE' in case the trade is created from 'Extension (Offsetting)'
+, 
+case 
+when tp.M_TP_ENTITY = 'SEB CN' and  M_CNT_EVTL ='Extension (Offsetting)' and M_CNTLIMPL2='Extension (Offsetting)' then "ROLL_OVER"
+when tp.M_TP_ENTITY = 'SEB CN' and  M_CNT_EVTL ='Extension (Offsetting)' and isnull(M_CNTLIMPL2,'')='' then "ROLL_OVER_"
+
+else ' '
+end  as SRCE_AR_ST_TP
+, ' ' as SRCE_PROD_TP
+, 'MXB' as DEL_LDGR_UDLY_SYS_ID
+, ' ' as NET_AR_ID
+, ' ' as INTL_CNTPR_ORG_ID
+, ' ' as INTL_CNTPR_UNIT_ID
+
+, case
+      when rtrim(isnull(tp.M_CNTLIMPL2, ' '))='Early Take Up (Offsetting)' or rtrim(isnull(M_CNTLEVTL2, ' '))='Early Take Up (Offsetting)' or rtrim(isnull(M_CNT_EVTL, ' '))='Early Take Up (Offsetting)' then 'BUYOUT' 
+      else ' ' 
+  end as PD_AR_PKG_ID_TP
+
+
+, case when tp.M_TP_ENTITY='SEB CN' then tp.M_TP_TRADER  --udf.M_DEALER 
+  else "" end as BUS_PERF_USER_ID
+, case 
+      when tp.M_CNT_TYPO='Depo' then 'MAINHLDR' 
+      else 'CLNT' 
+  end as AR_X_IP_TP
+
+, case 
+      when (udf.M_CHANNEL='COMMFX' or  udf.M_XMEC_DEAL=1) 
+        and isnull(udf.M_EXT_CPTY,'') <> '' 
+          then udf.M_EXT_CPTY  --MFX-11496
+      when tp.M_CNT_TYPO='SCF PL' 
+        then '00333459500005'
+      when tp.M_TP_INT='Y' 
+        then '00333459500005'          
+      else 
+        right(replicate('0', 14) + convert(varchar, rtrim(ctp.M_KURRE_NO)), 14)  
+  end as IP_ID
+
+, 0 AS BAL_AMT_ORIG
+
+from TR_TRNPL_FXD_REP  tp
+    join BUS_DAYS_ASIA_REP bd on tp.M_REF_DATA=bd.M_REF_DATA and bd.M_LABEL=tp.M_TP_ENTITY
+    left outer join TR_UDF_FX_REP  udf on tp.M_UDF_REF2=udf.M_UDF_REF2 and tp.M_REF_DATA=udf.M_REF_DATA 
+    left outer join SEBFX_PFOLIO_DES_REP ptf on tp.M_TP_PFOLIO=ptf.M_PTF_LBL and tp.M_REF_DATA=ptf.M_REF_DATA 
+    left outer join SEBFX_PARTIES_REP ctp on tp.M_TP_CNTRPRF=ctp.M_ID and ctp.M_REF_DATA=tp.M_REF_DATA
+    left outer join --MFX-11317
+    (
+    select M_CNT_ORG, M_TP_FXSWLEG, M_TP_NOMINAL, M_TP_DTEEXP from TR_TRNPL_FXD_REP 
+    where M_REF_DATA=@MxHistoricalData2 and M_TP_STATUS2!='DEAD' and M_AMD_STS2!='NA'
+    ) tp2
+    on tp2.M_CNT_ORG=tp.M_CNT_ORG and tp2.M_TP_FXSWLEG=tp.M_TP_FXSWLEG
+
+where 
+    tp.M_REF_DATA=@MxHistoricalData
+and tp.M_CNT_TYPO in ('Spot','Outright','FX Swap','SCF','NDF')
+and tp.M_TP_STATUS2='DEAD' 
+and tp.M_AMD_STS2!='NA' 
+and tp.M_AMD_STS2!='CA'
+and (tp.M_TP_PFOLIO!='TBGL4' or (tp.M_TP_PFOLIO='TBGL4' and udf.M_PREL_DEAL=0))
+and tp.M_TP_DTEEXP = bd.M_H_TODAY
+and tp.M_TP_ENTITY=@CLOSING_ENT
+and bd.M_LABEL =@CLOSING_ENT
+and  tp.M_REF_DATA=@MxHistoricalData
+
+and (tp.M_INSTRUMENT like @INSTR_IN  and tp.M_INSTRUMENT not like  @INSTR_NOT_IN)
+-- For SEB CN entity just Internal are reported. 
+and 1= (case when tp.M_TP_ENTITY='SEB CN' and tp.M_TP_INT='N' and tp.M_TP_INITSD='Y' then 1
+             when tp.M_TP_ENTITY='SEB CN' and tp.M_TP_INT='Y'  then 0
+										when tp.M_TP_ENTITY='SEB SG'  then 1
+             else 0
+         end 
+        )
+
+) T1
+
+
+
+
+END
+return 0
